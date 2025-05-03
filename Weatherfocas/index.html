@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dự Báo Thời Tiết</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+    <div id="root"></div>
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/babel-standalone@6.26.0/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const { createRoot } = ReactDOM;
+
+        const WeatherIcon = ({ description }) => {
+            const iconClass = description.toLowerCase().includes('clear') ? 'fa-sun text-yellow-500' :
+                             description.toLowerCase().includes('rain') ? 'fa-cloud-rain text-blue-500' :
+                             description.toLowerCase().includes('cloud') ? 'fa-cloud text-gray-500' :
+                             'fa-cloud text-gray-500';
+            return <i className={`fas ${iconClass} text-5xl mb-4 animate-pulse`}></i>;
+        };
+
+        const WeatherChart = ({ forecast }) => {
+            useEffect(() => {
+                const ctx = document.getElementById('tempChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: forecast.map((_, i) => `+${i*3}h`),
+                        datasets: [
+                            {
+                                label: 'Nhiệt độ (°C)',
+                                data: forecast.map(f => f.temp),
+                                borderColor: '#3b82f6',
+                                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                fill: true,
+                                tension: 0.4
+                            },
+                            {
+                                label: 'Độ ẩm (%)',
+                                data: forecast.map(f => f.humidity),
+                                borderColor: '#10b981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                fill: true,
+                                tension: 0.4
+                            }
+                        ]
+                    },
+                    options: {
+                        scales: {
+                            y: { beginAtZero: false },
+                            x: { title: { display: true, text: 'Thời gian' } }
+                        }
+                    }
+                });
+            }, [forecast]);
+            return <canvas id="tempChart" className="mt-6" height="100"></canvas>;
+        };
+
+        const WeatherMap = ({ lat, lon }) => {
+            useEffect(() => {
+                const map = L.map('map').setView([lat, lon], 10);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors'
+                }).addTo(map);
+                L.marker([lat, lon]).addTo(map).bindPopup('Vị trí hiện tại');
+            }, [lat, lon]);
+            return <div id="map" className="h-48 rounded-lg mt-4"></div>;
+        };
+
+        const App = () => {
+            const [city, setCity] = useState('');
+            const [weather, setWeather] = useState(null);
+            const [forecast, setForecast] = useState([]);
+            const [prediction, setPrediction] = useState(null);
+            const [history, setHistory] = useState(JSON.parse(localStorage.getItem('searchHistory')) || []);
+            const [error, setError] = useState(null);
+
+            const fetchWeather = async (searchCity) => {
+                try {
+                    const res = await fetch('http://localhost:5000/weather', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ city: searchCity })
+                    });
+                    const data = await res.json();
+                    if (data.error) {
+                        setError(data.error);
+                        setWeather(null);
+                        setForecast([]);
+                        setPrediction(null);
+                    } else {
+                        setWeather(data.current);
+                        setForecast(data.forecast);
+                        setPrediction(data.prediction);
+                        setError(null);
+                        if (!history.includes(searchCity)) {
+                            const newHistory = [searchCity, ...history.slice(0, 4)];
+                            setHistory(newHistory);
+                            localStorage.setItem('searchHistory', JSON.stringify(newHistory));
+                        }
+                    }
+                } catch (error) {
+                    setError('Không thể kết nối đến server');
+                    setWeather(null);
+                    setForecast([]);
+                    setPrediction(null);
+                }
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (city) fetchWeather(city);
+            };
+
+            const handleHistoryClick = (histCity) => {
+                setCity(histCity);
+                fetchWeather(histCity);
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center p-6" style={{ background: 'linear-gradient(135deg, #6b7280, #3b82f6)' }}>
+                    <div className="bg-white bg-opacity-90 backdrop-blur-lg p-8 rounded-2xl shadow-xl w-full max-w-2xl">
+                        <h1 className="text-4xl font-bold text-center text-gray-800 mb-6">DỰ BÁO THỜI TIẾT</h1>
+                        <form onSubmit={handleSubmit} className="mb-6 flex space-x-3">
+                            <input
+                                type="text"
+                                value={city}
+                                onChange={(e) => setCity(e.target.value)}
+                                placeholder="Nhập tên thành phố (ví dụ: Hà Nội)"
+                                className="flex-1 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                required
+                            />
+                            <button type="submit" className="bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700">
+                                <i className="fas fa-search"></i>
+                            </button>
+                        </form>
+                        {error && (
+                            <p className="text-red-500 text-center mb-4">{error}</p>
+                        )}
+                        {history.length > 0 && (
+                            <div className="mb-4 flex flex-wrap gap-2">
+                                {history.map((histCity, index) => (
+                                    <button
+                                        key={index}
+                                        onClick={() => handleHistoryClick(histCity)}
+                                        className="bg-gray-200 text-gray-800 px-3 py-1 rounded-full hover:bg-gray-300"
+                                    >
+                                        {histCity}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        {weather && (
+                            <div className="text-center">
+                                <h2 className="text-3xl font-semibold text-gray-800">{weather.city}</h2>
+                                <WeatherIcon description={weather.description} />
+                                <p className="text-5xl font-bold text-gray-800">{weather.temp}°C</p>
+                                <p className="text-lg text-gray-600 capitalize">{weather.description}</p>
+                                <p className="text-lg text-gray-600">Độ ẩm: {weather.humidity}%</p>
+                                {prediction && (
+                                    <p className="mt-4 text-lg font-medium text-blue-600">
+                                        Nhiệt độ dự đoán: {prediction.temp.toFixed(2)}°C, Độ ẩm: {prediction.humidity.toFixed(2)}%
+                                    </p>
+                                )}
+                                <WeatherChart forecast={forecast} />
+                                <WeatherMap lat={weather.lat} lon={weather.lon} />
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
